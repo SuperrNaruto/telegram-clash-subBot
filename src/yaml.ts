@@ -1,5 +1,5 @@
 import YAML from "yaml";
-import { NodeMeta } from "./gist.js";
+import { NodeMeta } from "./gist";
 
 export function buildYaml(
   nodes: NodeMeta[],
