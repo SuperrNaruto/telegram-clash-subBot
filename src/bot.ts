@@ -9,7 +9,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN!;
 if (!BOT_TOKEN) throw new Error("BOT_TOKEN 未设置");
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const TTL = Number(process.env.CACHE_TTL) || 600;
-
+const SESSION_TTL = Number(process.env.SESSION_TTL) || 3600; // 默认1小时过期
 const bot = new Telegraf(BOT_TOKEN);
 const ruleCache = new Cache<string>(TTL * 1000);
 
@@ -17,6 +17,7 @@ const ruleCache = new Cache<string>(TTL * 1000);
 interface Session {
   gist?: string;
   apps: Set<string>;
+  lastActive: number; // 添加这一行
 }
 const sessions = new Map<number, Session>();
 
@@ -35,8 +36,10 @@ const APP_LIST = [
 function getSession(id: number): Session {
   let s = sessions.get(id);
   if (!s) {
-    s = { apps: new Set() };
+    s = { apps: new Set(), lastActive: Date.now() }; // 初始化时设置时间
     sessions.set(id, s);
+  } else {
+    s.lastActive = Date.now(); // 每次获取时更新时间
   }
   return s;
 }
@@ -54,6 +57,17 @@ function buildKeyboard(session: Session) {
   arranged.push([Markup.button.callback("✅ 生成配置", "GENERATE")]);
   return Markup.inlineKeyboard(arranged);
 }
+
+function cleanupSessions() {
+  const now = Date.now();
+  for (const [id, session] of sessions.entries()) {
+    if (now - session.lastActive > SESSION_TTL * 1000) {
+      sessions.delete(id);
+    }
+  }
+}
+// 设置定期执行清理（每小时运行一次）
+setInterval(cleanupSessions, 60 * 60 * 1000);
 
 /* ---------- Bot Logic ---------- */
 bot.start(ctx =>
