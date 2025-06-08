@@ -4,6 +4,7 @@ import { fetchGistRaw, parseNodeLine } from "./gist";
 import { fetchRule } from "./rules";
 import { buildYaml } from "./yaml";
 import { Cache } from "./cache";
+import { alias } from "./alias"; // 添加这一行导入
 
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 if (!BOT_TOKEN) throw new Error("BOT_TOKEN 未设置");
@@ -73,7 +74,7 @@ setInterval(cleanupSessions, 60 * 60 * 1000);
 bot.start(ctx =>
   ctx.reply(
     "发送包含节点信息的 Gist 原始链接（以 raw.githubusercontent.com 开头），然后点击按钮选择需要的分流规则。",
-    { disable_web_page_preview: true }
+    { disable_web_page_preview: true } as any // 修复属性名问题
   )
 );
 
@@ -92,11 +93,17 @@ bot.on("text", async ctx => {
 });
 
 bot.action(/TOGGLE_/, async ctx => {
-  const app = ctx.callbackQuery.data.replace("TOGGLE_", "");
+  // 修复callbackQuery.data问题
+  const data = ctx.callbackQuery?.data;
+  if (!data) return ctx.answerCbQuery("无效的回调数据");
+  const app = data.replace("TOGGLE_", "");
+  
   const session = getSession(ctx.from!.id);
   if (session.apps.has(app)) session.apps.delete(app);
   else session.apps.add(app);
-  await ctx.editMessageReplyMarkup(buildKeyboard(session));
+  
+  // 修复buildKeyboard返回类型问题
+  await ctx.editMessageReplyMarkup({ inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard });
   await ctx.answerCbQuery();
 });
 
@@ -165,6 +172,8 @@ for (const app of APP_LIST) {
     console.warn(`警告: APP_LIST 中的 "${app}" 与 alias 中的 "${alias[app]}" 名称不一致`);
   }
 }
+
+console.log("正在启动机器人，App列表:", APP_LIST.join(", "));
 
 /* ---------- Launch ---------- */
 bot.launch();
