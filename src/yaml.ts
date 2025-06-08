@@ -5,6 +5,22 @@ import { alias } from "./alias.js";
 const BASE =
   "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/refs/heads/master/rule/Clash";
 
+const REGION_ALIAS: Record<string, string> = {
+  HK: "香港节点",
+  JP: "日本节点",
+  SG: "新加坡节点",
+  US: "美国节点",
+  UK: "英国节点",
+  GB: "英国节点",
+  KR: "韩国节点",
+  TW: "台湾节点",
+  CN: "中国节点",
+  DE: "德国节点",
+  FR: "法国节点",
+  CA: "加拿大节点",
+  AU: "澳大利亚节点"
+};
+
 export function buildYaml(nodes: NodeMeta[], apps: string[]): string {
   const proxies = nodes.map(n => ({
     name: n.name,
@@ -20,7 +36,14 @@ export function buildYaml(nodes: NodeMeta[], apps: string[]): string {
     udp: n.params.udp === "true"
   }));
 
-  const regions = [...new Set(nodes.map(n => n.region))];
+  const regionProxyMap: Record<string, string[]> = {};
+  for (const n of nodes) {
+    const name = REGION_ALIAS[n.region] ?? n.region;
+    if (!regionProxyMap[name]) regionProxyMap[name] = [];
+    regionProxyMap[name].push(n.name);
+  }
+  const regionNames = Object.keys(regionProxyMap);
+
   const groups = [
     {
       name: "♻️ Automatic",
@@ -29,17 +52,17 @@ export function buildYaml(nodes: NodeMeta[], apps: string[]): string {
       interval: 300,
       proxies: proxies.map(p => p.name)
     },
-    ...regions.map(r => ({
-      name: `🌏 ${r}`,
+    ...regionNames.map(r => ({
+      name: r,
       type: "select",
-      proxies: proxies.filter(p => p.name.startsWith(r)).map(p => p.name)
+      proxies: regionProxyMap[r]
     })),
     { name: "DIRECT", type: "direct" },
     { name: "REJECT", type: "reject" },
     ...apps.map(app => ({
       name: `🎯 ${app}`,
       type: "select",
-      proxies: ["♻️ Automatic", "DIRECT", "REJECT"]
+      proxies: ["♻️ Automatic", ...regionNames, "DIRECT", "REJECT"]
     }))
   ];
 

@@ -166,7 +166,13 @@ bot.action("GENERATE", async ctx => {
           console.error(`解析节点失败: ${line}`, e);
           throw new Error(`解析节点失败: ${e instanceof Error ? e.message : String(e)}`);
         }
-      });
+      })
+      .filter(
+        n =>
+          !["剩余流量", "距离下次重置剩余", "套餐到期"].some(keyword =>
+            n.name.includes(keyword)
+          )
+      );
 
     const yamlStr = buildYaml(nodes, Array.from(session.apps));
 
