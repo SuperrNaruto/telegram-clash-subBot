@@ -1,5 +1,5 @@
 import axios from "axios";
-import { alias } from "./alias.js";
+import { alias } from "./alias";
 
 const BASE =
   "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/refs/heads/master/rule/Clash";
