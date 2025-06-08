@@ -19,10 +19,13 @@ export async function fetchGistRaw(url: string, token?: string): Promise<string>
 export function parseNodeLine(line: string): NodeMeta {
   const [name, type, host, portStr, uuid, ...rest] = line.split(",");
   const params: Record<string, string> = {};
-  rest.join(",").split(",").forEach(p => {
+  
+  // 直接遍历 rest 数组，不需要先 join 再 split
+  rest.forEach(p => {
     const [k, v] = p.split("=");
     if (k && v) params[k.trim()] = v.replace(/"/g, "");
   });
+  
   const region = name.split("-")[0];
   return {
     name: name.trim(),
