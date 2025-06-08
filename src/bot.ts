@@ -87,7 +87,7 @@ setInterval(cleanupSessions, 60 * 60 * 1000);
 /* ---------- Bot Logic ---------- */
 bot.start(ctx =>
   ctx.reply(
-    "发送包含节点信息的 Gist 原始链接（以 raw.githubusercontent.com 开头），然后点击按钮选择需要的分流规则，可通过上下页按钮浏览更多分类。",
+    "发送包含节点信息的 Gist 原始链接（以 gist.githubusercontent.com 开头），然后点击按钮选择需要的分流规则，可通过上下页按钮浏览更多分类。",
     { disable_web_page_preview: true } as any
   )
 );
