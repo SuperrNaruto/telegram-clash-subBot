@@ -1,24 +1,22 @@
 import "dotenv/config";
 import { Telegraf, Markup } from "telegraf";
 import { fetchGistRaw, parseNodeLine } from "./gist.js";
-import { fetchRule } from "./rules.js";
 import { buildYaml } from "./yaml.js";
-import { Cache } from "./cache.js";
-import { alias } from "./alias.js"; // 添加这一行导入
+import { alias } from "./alias.js";
 
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 if (!BOT_TOKEN) throw new Error("BOT_TOKEN 未设置");
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const TTL = Number(process.env.CACHE_TTL) || 600;
-const SESSION_TTL = Number(process.env.SESSION_TTL) || 3600; // 默认1小时过期
+// SESSION_TTL 控制会话在多少秒无操作后失效，默认 1 小时
+const SESSION_TTL = Number(process.env.SESSION_TTL) || 3600;
+
 const bot = new Telegraf(BOT_TOKEN);
-const ruleCache = new Cache<string>(TTL * 1000);
 
 /** 会话状态 */
 interface Session {
   gist?: string;
   apps: Set<string>;
-  lastActive: number; // 添加这一行
+  lastActive: number;
 }
 const sessions = new Map<number, Session>();
 
@@ -37,10 +35,10 @@ const APP_LIST = [
 function getSession(id: number): Session {
   let s = sessions.get(id);
   if (!s) {
-    s = { apps: new Set(), lastActive: Date.now() }; // 初始化时设置时间
+    s = { apps: new Set(), lastActive: Date.now() };
     sessions.set(id, s);
   } else {
-    s.lastActive = Date.now(); // 每次获取时更新时间
+    s.lastActive = Date.now();
   }
   return s;
 }
@@ -52,7 +50,6 @@ function buildKeyboard(session: Session) {
       `TOGGLE_${app}`
     )
   );
-  // 每行两个按钮
   const arranged: any[][] = [];
   for (let i = 0; i < rows.length; i += 2) arranged.push(rows.slice(i, i + 2));
   arranged.push([Markup.button.callback("✅ 生成配置", "GENERATE")]);
@@ -67,14 +64,13 @@ function cleanupSessions() {
     }
   }
 }
-// 设置定期执行清理（每小时运行一次）
 setInterval(cleanupSessions, 60 * 60 * 1000);
 
 /* ---------- Bot Logic ---------- */
 bot.start(ctx =>
   ctx.reply(
     "发送包含节点信息的 Gist 原始链接（以 raw.githubusercontent.com 开头），然后点击按钮选择需要的分流规则。",
-    { disable_web_page_preview: true } as any // 修复属性名问题
+    { disable_web_page_preview: true } as any
   )
 );
 
@@ -85,7 +81,7 @@ bot.on("text", async ctx => {
   }
   const session = getSession(ctx.from.id);
   session.gist = url;
-  session.apps.clear(); // 重置
+  session.apps.clear();
   await ctx.reply(
     "好的！请选择要启用的分流规则（可多选）：",
     buildKeyboard(session)
@@ -93,21 +89,21 @@ bot.on("text", async ctx => {
 });
 
 bot.action(/TOGGLE_/, async ctx => {
-  // 使用类型断言来解决 data 属性不存在的问题
   const callbackQuery = ctx.callbackQuery as { data: string };
   const data = callbackQuery.data;
   if (!data) return ctx.answerCbQuery("无效的回调数据");
   const app = data.replace("TOGGLE_", "");
-  
+
   const session = getSession(ctx.from!.id);
   if (session.apps.has(app)) session.apps.delete(app);
   else session.apps.add(app);
-  
-  // 修复buildKeyboard返回类型问题
-  await ctx.editMessageReplyMarkup({ inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard });
+
+  await ctx.editMessageReplyMarkup({
+    inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard
+  });
   await ctx.answerCbQuery();
 });
-// 修改 GENERATE 操作处理函数
+
 bot.action("GENERATE", async ctx => {
   const session = getSession(ctx.from!.id);
   if (!session.gist) return ctx.answerCbQuery("请先发送 Gist 链接");
@@ -116,14 +112,13 @@ bot.action("GENERATE", async ctx => {
 
   await ctx.answerCbQuery("开始生成，请稍候…");
   try {
-    /* 1. Gist */
     let raw;
     try {
       raw = await fetchGistRaw(session.gist, GITHUB_TOKEN);
     } catch (error: any) {
       return ctx.reply(`获取Gist内容失败: ${error.message}`);
     }
-    
+
     const nodes = raw
       .split(/\r?\n/)
       .filter(Boolean)
@@ -136,26 +131,7 @@ bot.action("GENERATE", async ctx => {
         }
       });
 
-    /* 2. Rules */
-    const rules: Record<string, string> = {};
-    for (const app of session.apps) {
-      const cached = ruleCache.get(app);
-      if (cached) {
-        rules[app] = cached;
-        continue;
-      }
-      
-      try {
-        const content = await fetchRule(app, GITHUB_TOKEN);
-        rules[app] = content;
-        ruleCache.set(app, content);
-      } catch (error: any) {
-        return ctx.reply(`获取规则 ${app} 失败: ${error.message || '未知错误'}`);
-      }
-    }
-
-    /* 3. YAML */
-    const yamlStr = buildYaml(nodes, rules);
+    const yamlStr = buildYaml(nodes, Array.from(session.apps));
 
     await ctx.replyWithDocument(
       { source: Buffer.from(yamlStr, "utf-8"), filename: "clash.yaml" },

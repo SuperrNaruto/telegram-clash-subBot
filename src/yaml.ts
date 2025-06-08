@@ -1,10 +1,11 @@
 import YAML from "yaml";
 import { NodeMeta } from "./gist.js";
+import { alias } from "./alias.js";
 
-export function buildYaml(
-  nodes: NodeMeta[],
-  rules: Record<string, string>
-): string {
+const BASE =
+  "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/refs/heads/master/rule/Clash";
+
+export function buildYaml(nodes: NodeMeta[], apps: string[]): string {
   const proxies = nodes.map(n => ({
     name: n.name,
     type: "vless",
@@ -35,7 +36,7 @@ export function buildYaml(
     })),
     { name: "DIRECT", type: "direct" },
     { name: "REJECT", type: "reject" },
-    ...Object.keys(rules).map(app => ({
+    ...apps.map(app => ({
       name: `🎯 ${app}`,
       type: "select",
       proxies: ["♻️ Automatic", "DIRECT", "REJECT"]
@@ -43,13 +44,18 @@ export function buildYaml(
   ];
 
   const ruleProviders: Record<string, any> = {};
-  for (const [app, body] of Object.entries(rules)) {
-    ruleProviders[app] = { type: "inline", behavior: "domain", body };
+  for (const app of apps) {
+    const folder = alias[app] ?? app;
+    ruleProviders[app] = {
+      type: "http",
+      behavior: "domain",
+      url: `${BASE}/${folder}/${folder}.yaml`,
+      path: `./rules/${folder}.yaml`,
+      interval: 86400
+    };
   }
 
-  const ruleLines = Object.keys(rules).map(
-    app => `RULE-SET,${app},🎯 ${app}`
-  );
+  const ruleLines = apps.map(app => `RULE-SET,${app},🎯 ${app}`);
   ruleLines.push("MATCH,♻️ Automatic");
 
   return YAML.stringify({
