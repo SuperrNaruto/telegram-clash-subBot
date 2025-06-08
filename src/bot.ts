@@ -100,6 +100,7 @@ bot.action(/TOGGLE_/, async ctx => {
   await ctx.answerCbQuery();
 });
 
+// 修改 GENERATE 操作处理函数
 bot.action("GENERATE", async ctx => {
   const session = getSession(ctx.from!.id);
   if (!session.gist) return ctx.answerCbQuery("请先发送 Gist 链接");
@@ -109,11 +110,24 @@ bot.action("GENERATE", async ctx => {
   await ctx.answerCbQuery("开始生成，请稍候…");
   try {
     /* 1. Gist */
-    const raw = await fetchGistRaw(session.gist, GITHUB_TOKEN);
+    let raw;
+    try {
+      raw = await fetchGistRaw(session.gist, GITHUB_TOKEN);
+    } catch (error: any) {
+      return ctx.reply(`获取Gist内容失败: ${error.message}`);
+    }
+    
     const nodes = raw
       .split(/\r?\n/)
       .filter(Boolean)
-      .map(parseNodeLine);
+      .map(line => {
+        try {
+          return parseNodeLine(line);
+        } catch (e) {
+          console.error(`解析节点失败: ${line}`, e);
+          throw new Error(`解析节点失败: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      });
 
     /* 2. Rules */
     const rules: Record<string, string> = {};
@@ -123,9 +137,14 @@ bot.action("GENERATE", async ctx => {
         rules[app] = cached;
         continue;
       }
-      const content = await fetchRule(app, GITHUB_TOKEN);
-      rules[app] = content;
-      ruleCache.set(app, content);
+      
+      try {
+        const content = await fetchRule(app, GITHUB_TOKEN);
+        rules[app] = content;
+        ruleCache.set(app, content);
+      } catch (error: any) {
+        return ctx.reply(`获取规则 ${app} 失败: ${error.message || '未知错误'}`);
+      }
     }
 
     /* 3. YAML */
