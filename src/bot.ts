@@ -4,6 +4,7 @@ import { fetchGistRaw, parseNodeLine } from "./gist.js";
 import { buildYaml } from "./yaml.js";
 import { alias } from "./alias.js";
 import { fetchRuleCategories } from "./rules.js";
+import { loadGroups } from "./groups.js";
 
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 if (!BOT_TOKEN) throw new Error("BOT_TOKEN 未设置");
@@ -20,10 +21,13 @@ interface Session {
   apps: Set<string>;
   lastActive: number;
   page: number;
+  filter?: string;
+  awaitingSearch?: boolean;
 }
 const sessions = new Map<number, Session>();
 
 let APP_LIST: string[] = [];
+let GROUPS: Record<string, string[]> = {};
 
 async function loadCategories() {
   try {
@@ -54,8 +58,11 @@ function getSession(id: number): Session {
 }
 
 function buildKeyboard(session: Session) {
+  const list = session.filter
+    ? APP_LIST.filter(a => a.toLowerCase().includes(session.filter!.toLowerCase()))
+    : APP_LIST;
   const start = session.page * PAGE_SIZE;
-  const pageApps = APP_LIST.slice(start, start + PAGE_SIZE);
+  const pageApps = list.slice(start, start + PAGE_SIZE);
   const rows = pageApps.map(app =>
     Markup.button.callback(
       `${session.apps.has(app) ? "✅" : "⬜️"} ${app}`,
@@ -67,9 +74,18 @@ function buildKeyboard(session: Session) {
   const nav: any[] = [];
   if (session.page > 0)
     nav.push(Markup.button.callback("⬅️ 上一页", "PREV"));
-  if (start + PAGE_SIZE < APP_LIST.length)
+  if (start + PAGE_SIZE < list.length)
     nav.push(Markup.button.callback("下一页 ➡️", "NEXT"));
   arranged.push(nav);
+  if (Object.keys(GROUPS).length) {
+    const gRow = Object.keys(GROUPS).map(g =>
+      Markup.button.callback(`📂 ${g}`, `TOGGLE_GROUP_${g}`)
+    );
+    arranged.push(gRow);
+  }
+  const searchRow: any[] = [Markup.button.callback("🔍 搜索", "SEARCH")];
+  if (session.filter) searchRow.push(Markup.button.callback("❌ 清除", "CLEAR_FILTER"));
+  arranged.push(searchRow);
   arranged.push([Markup.button.callback("✅ 生成配置", "GENERATE")]);
   return Markup.inlineKeyboard(arranged);
 }
@@ -93,14 +109,21 @@ bot.start(ctx =>
 );
 
 bot.on("text", async ctx => {
-  const url = ctx.message.text.trim();
-  if (!url.includes("gist.github") && !url.includes("raw.githubusercontent")) {
+  const text = ctx.message.text.trim();
+  const session = getSession(ctx.from.id);
+  if (session.awaitingSearch) {
+    session.filter = text;
+    session.page = 0;
+    session.awaitingSearch = false;
+    return ctx.reply(`已根据关键词“${text}”过滤：`, buildKeyboard(session));
+  }
+  if (!text.includes("gist.github") && !text.includes("raw.githubusercontent")) {
     return ctx.reply("这看起来不是 Gist 链接，请重新发送。");
   }
-  const session = getSession(ctx.from.id);
-  session.gist = url;
+  session.gist = text;
   session.apps.clear();
   session.page = 0;
+  session.filter = undefined;
   await ctx.reply(
     "好的！请选择要启用的分流规则（可多选）：",
     buildKeyboard(session)
@@ -111,11 +134,22 @@ bot.action(/TOGGLE_/, async ctx => {
   const callbackQuery = ctx.callbackQuery as { data: string };
   const data = callbackQuery.data;
   if (!data) return ctx.answerCbQuery("无效的回调数据");
-  const app = data.replace("TOGGLE_", "");
 
   const session = getSession(ctx.from!.id);
-  if (session.apps.has(app)) session.apps.delete(app);
-  else session.apps.add(app);
+
+  if (data.startsWith("TOGGLE_GROUP_")) {
+    const group = data.replace("TOGGLE_GROUP_", "");
+    const apps = GROUPS[group] || [];
+    const allSelected = apps.every(a => session.apps.has(a));
+    for (const app of apps) {
+      if (allSelected) session.apps.delete(app);
+      else session.apps.add(app);
+    }
+  } else {
+    const app = data.replace("TOGGLE_", "");
+    if (session.apps.has(app)) session.apps.delete(app);
+    else session.apps.add(app);
+  }
 
   await ctx.editMessageReplyMarkup({
     inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard
@@ -135,6 +169,22 @@ bot.action("NEXT", async ctx => {
 bot.action("PREV", async ctx => {
   const session = getSession(ctx.from!.id);
   if (session.page > 0) session.page--;
+  await ctx.editMessageReplyMarkup({
+    inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard
+  });
+  await ctx.answerCbQuery();
+});
+
+bot.action("SEARCH", async ctx => {
+  const session = getSession(ctx.from!.id);
+  session.awaitingSearch = true;
+  await ctx.answerCbQuery("请输入关键词发送给我");
+});
+
+bot.action("CLEAR_FILTER", async ctx => {
+  const session = getSession(ctx.from!.id);
+  session.filter = undefined;
+  session.page = 0;
   await ctx.editMessageReplyMarkup({
     inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard
   });
@@ -188,12 +238,15 @@ bot.action("GENERATE", async ctx => {
 
 async function start() {
   await loadCategories();
+  GROUPS = await loadGroups();
   for (const app of APP_LIST) {
     if (alias[app] && !alias[app].includes(app) && !app.includes(alias[app])) {
       console.warn(`警告: APP_LIST 中的 "${app}" 与 alias 中的 "${alias[app]}" 名称不一致`);
     }
   }
   console.log("正在启动机器人，App列表:", APP_LIST.join(", "));
+  if (Object.keys(GROUPS).length)
+    console.log("自定义分组:", Object.keys(GROUPS).join(", "));
   await bot.launch();
   console.log("🤖 Telegram Bot 已启动");
 }
