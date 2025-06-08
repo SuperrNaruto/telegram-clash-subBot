@@ -160,6 +160,12 @@ bot.action("GENERATE", async ctx => {
   }
 });
 
+for (const app of APP_LIST) {
+  if (alias[app] && !alias[app].includes(app) && !app.includes(alias[app])) {
+    console.warn(`警告: APP_LIST 中的 "${app}" 与 alias 中的 "${alias[app]}" 名称不一致`);
+  }
+}
+
 /* ---------- Launch ---------- */
 bot.launch();
 console.log("🤖 Telegram Bot 已启动");
