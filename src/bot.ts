@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { Telegraf, Markup } from "telegraf";
 import { fetchGistRaw, parseNodeLine } from "./gist";
-import { fetchRule } from "./rule";
+import { fetchRule } from "./rules";
 import { buildYaml } from "./yaml";
 import { Cache } from "./cache";
 
