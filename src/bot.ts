@@ -1,9 +1,9 @@
 import "dotenv/config";
 import { Telegraf, Markup } from "telegraf";
-import { fetchGistRaw, parseNodeLine } from "./gist.js";
-import { fetchRule } from "./rule.js";
-import { buildYaml } from "./yaml.js";
-import { Cache } from "./cache.js";
+import { fetchGistRaw, parseNodeLine } from "./gist";
+import { fetchRule } from "./rule";
+import { buildYaml } from "./yaml";
+import { Cache } from "./cache";
 
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 if (!BOT_TOKEN) throw new Error("BOT_TOKEN 未设置");
