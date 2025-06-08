@@ -44,3 +44,5 @@ HK-BAGEHKL-VL-01=vless,bagehkl02.122733.xyz,12101,"e8194655-165d-4f54-aeca-ea27f
 ```
 
 Then choose rule sets via the inline keyboard. Rules are loaded remotely from [blackmatrix7/ios_rule_script](https://github.com/blackmatrix7/ios_rule_script/tree/master/rule/Clash).
+
+The available categories are fetched dynamically from the repository at runtime. Use the "下一页" and "上一页" buttons to browse through all rule sets.
