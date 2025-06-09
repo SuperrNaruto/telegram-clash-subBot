@@ -151,27 +151,34 @@ bot.action(/TOGGLE_/, async ctx => {
     else session.apps.add(app);
   }
 
-  await ctx.editMessageReplyMarkup({
-    inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard
-  });
+  const newMarkup = buildKeyboard(session).reply_markup.inline_keyboard;
+  const currentMarkup =
+    (ctx.callbackQuery as any).message?.reply_markup?.inline_keyboard;
+  if (JSON.stringify(newMarkup) !== JSON.stringify(currentMarkup)) {
+    await ctx.editMessageReplyMarkup({ inline_keyboard: newMarkup });
+  }
   await ctx.answerCbQuery();
 });
 
 bot.action("NEXT", async ctx => {
   const session = getSession(ctx.from!.id);
-  if ((session.page + 1) * PAGE_SIZE < APP_LIST.length) session.page++;
-  await ctx.editMessageReplyMarkup({
-    inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard
-  });
+  if ((session.page + 1) * PAGE_SIZE < APP_LIST.length) {
+    session.page++;
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard
+    });
+  }
   await ctx.answerCbQuery();
 });
 
 bot.action("PREV", async ctx => {
   const session = getSession(ctx.from!.id);
-  if (session.page > 0) session.page--;
-  await ctx.editMessageReplyMarkup({
-    inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard
-  });
+  if (session.page > 0) {
+    session.page--;
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard
+    });
+  }
   await ctx.answerCbQuery();
 });
 
@@ -183,11 +190,13 @@ bot.action("SEARCH", async ctx => {
 
 bot.action("CLEAR_FILTER", async ctx => {
   const session = getSession(ctx.from!.id);
-  session.filter = undefined;
-  session.page = 0;
-  await ctx.editMessageReplyMarkup({
-    inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard
-  });
+  if (session.filter) {
+    session.filter = undefined;
+    session.page = 0;
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard
+    });
+  }
   await ctx.answerCbQuery();
 });
 

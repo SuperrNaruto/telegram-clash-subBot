@@ -59,3 +59,7 @@ Example `groups.json`:
   "Social": ["X", "Telegram"]
 }
 ```
+
+Add more presets by editing this file. Each array entry must match an available
+category name exactly. After modifying `groups.json`, restart the bot so the new
+groups are loaded.
