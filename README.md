@@ -63,3 +63,11 @@ Example `groups.json`:
 Add more presets by editing this file. Each array entry must match an available
 category name exactly. After modifying `groups.json`, restart the bot so the new
 groups are loaded.
+
+You can also manage groups directly through the bot:
+
+- `/groups` – list all groups and their rules.
+- `/newgroup <name> [rules...]` – create a new group.
+- `/addrules <name> <rules...>` – add rules to a group.
+- `/removerules <name> <rules...>` – remove rules from a group.
+- `/editgroup <name>` – interactively edit a group's rules with buttons.
