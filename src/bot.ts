@@ -12,6 +12,8 @@ const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 // SESSION_TTL 控制会话在多少秒无操作后失效，默认 1 小时
 const SESSION_TTL = Number(process.env.SESSION_TTL) || 3600;
 const PAGE_SIZE = 10;
+const GROUP_PAGE_SIZE = 5;
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
 const bot = new Telegraf(BOT_TOKEN);
 
@@ -23,6 +25,8 @@ interface Session {
   page: number;
   filter?: string;
   awaitingSearch?: boolean;
+  groupPage: number;
+  prefixFilter?: boolean;
 }
 const sessions = new Map<number, Session>();
 
@@ -59,7 +63,7 @@ async function loadCategories() {
 function getSession(id: number): Session {
   let s = sessions.get(id);
   if (!s) {
-    s = { apps: new Set(), lastActive: Date.now(), page: 0 };
+    s = { apps: new Set(), lastActive: Date.now(), page: 0, groupPage: 0, prefixFilter: false };
     sessions.set(id, s);
   } else {
     s.lastActive = Date.now();
@@ -69,7 +73,11 @@ function getSession(id: number): Session {
 
 function buildKeyboard(session: Session) {
   const list = session.filter
-    ? APP_LIST.filter(a => a.toLowerCase().includes(session.filter!.toLowerCase()))
+    ? APP_LIST.filter(a => {
+        const l = a.toLowerCase();
+        const f = session.filter!.toLowerCase();
+        return session.prefixFilter ? l.startsWith(f) : l.includes(f);
+      })
     : APP_LIST;
   const start = session.page * PAGE_SIZE;
   const pageApps = list.slice(start, start + PAGE_SIZE);
@@ -87,12 +95,33 @@ function buildKeyboard(session: Session) {
   if (start + PAGE_SIZE < list.length)
     nav.push(Markup.button.callback("下一页 ➡️", "NEXT"));
   arranged.push(nav);
-  if (Object.keys(GROUPS).length) {
-    const gRow = Object.keys(GROUPS).map(g =>
+  const groupNames = Object.keys(GROUPS);
+  if (groupNames.length) {
+    const gStart = session.groupPage * GROUP_PAGE_SIZE;
+    const gSlice = groupNames.slice(gStart, gStart + GROUP_PAGE_SIZE);
+    const gRow = gSlice.map(g =>
       Markup.button.callback(`📂 ${g}`, `TOGGLE_GROUP_${g}`)
     );
     arranged.push(gRow);
+    if (groupNames.length > GROUP_PAGE_SIZE) {
+      const gNav: any[] = [];
+      if (session.groupPage > 0)
+        gNav.push(Markup.button.callback("⬅️ 上一页", "GPREV"));
+      if (gStart + GROUP_PAGE_SIZE < groupNames.length)
+        gNav.push(Markup.button.callback("下一页 ➡️", "GNEXT"));
+      arranged.push(gNav);
+    }
   }
+  const letterRows: any[][] = [];
+  let row: any[] = [];
+  for (let i = 0; i < ALPHABET.length; i++) {
+    row.push(Markup.button.callback(ALPHABET[i], `LETTER_${ALPHABET[i]}`));
+    if ((i + 1) % 7 === 0 || i === ALPHABET.length - 1) {
+      letterRows.push(row);
+      row = [];
+    }
+  }
+  arranged.push(...letterRows);
   const searchRow: any[] = [Markup.button.callback("🔍 搜索", "SEARCH")];
   if (session.filter) searchRow.push(Markup.button.callback("❌ 清除", "CLEAR_FILTER"));
   arranged.push(searchRow);
@@ -157,6 +186,19 @@ bot.start(ctx =>
   )
 );
 
+bot.help(ctx => {
+  ctx.reply(
+    [
+      "可用指令:",
+      "/groups - 查看所有分组",
+      "/newgroup <名称> [规则...] - 创建分组",
+      "/addrules <名称> <规则...> - 向分组添加规则",
+      "/removerules <名称> <规则...> - 从分组移除规则",
+      "/editgroup <名称> - 使用按钮编辑分组"
+    ].join("\n")
+  );
+});
+
 bot.command("groups", ctx => {
   if (Object.keys(GROUPS).length === 0) return ctx.reply("当前没有自定义分组");
   const lines = Object.entries(GROUPS).map(
@@ -219,6 +261,8 @@ bot.on("text", async ctx => {
   if (session.awaitingSearch) {
     session.filter = text;
     session.page = 0;
+    session.groupPage = 0;
+    session.prefixFilter = false;
     session.awaitingSearch = false;
     return ctx.reply(`已根据关键词“${text}”过滤：`, buildKeyboard(session));
   }
@@ -229,6 +273,8 @@ bot.on("text", async ctx => {
   session.apps.clear();
   session.page = 0;
   session.filter = undefined;
+  session.groupPage = 0;
+  session.prefixFilter = false;
   await ctx.reply(
     "好的！请选择要启用的分流规则（可多选）：",
     buildKeyboard(session)
@@ -369,6 +415,45 @@ bot.action("PREV", async ctx => {
   await ctx.answerCbQuery();
 });
 
+bot.action("GNEXT", async ctx => {
+  const session = getSession(ctx.from!.id);
+  const total = Object.keys(GROUPS).length;
+  if ((session.groupPage + 1) * GROUP_PAGE_SIZE < total) {
+    session.groupPage++;
+    await safeEditReplyMarkup(
+      ctx,
+      buildKeyboard(session).reply_markup.inline_keyboard
+    );
+  }
+  await ctx.answerCbQuery();
+});
+
+bot.action("GPREV", async ctx => {
+  const session = getSession(ctx.from!.id);
+  if (session.groupPage > 0) {
+    session.groupPage--;
+    await safeEditReplyMarkup(
+      ctx,
+      buildKeyboard(session).reply_markup.inline_keyboard
+    );
+  }
+  await ctx.answerCbQuery();
+});
+
+bot.action(/^LETTER_[A-Z]$/, async ctx => {
+  const letter = (ctx.callbackQuery as { data: string }).data.replace("LETTER_", "");
+  const session = getSession(ctx.from!.id);
+  session.filter = letter;
+  session.prefixFilter = true;
+  session.page = 0;
+  session.groupPage = 0;
+  await safeEditReplyMarkup(
+    ctx,
+    buildKeyboard(session).reply_markup.inline_keyboard
+  );
+  await ctx.answerCbQuery();
+});
+
 bot.action("SEARCH", async ctx => {
   const session = getSession(ctx.from!.id);
   session.awaitingSearch = true;
@@ -380,6 +465,8 @@ bot.action("CLEAR_FILTER", async ctx => {
   if (session.filter) {
     session.filter = undefined;
     session.page = 0;
+    session.groupPage = 0;
+    session.prefixFilter = false;
     await safeEditReplyMarkup(
       ctx,
       buildKeyboard(session).reply_markup.inline_keyboard
