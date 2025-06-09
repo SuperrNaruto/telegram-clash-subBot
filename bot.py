@@ -599,12 +599,14 @@ class BotApp:
                 caption="配置生成成功 🎉",
             )
 
-    async def run(self):
-        await self.load_initial()
+    def run(self) -> None:
+        """Load initial data and start polling."""
+        asyncio.run(self.load_initial())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         print("🤖 Telegram Bot 已启动")
-        await self.app.run_polling()
+        self.app.run_polling()
 
 
 if __name__ == "__main__":
-    bot_app = BotApp()
-    asyncio.run(bot_app.run())
+    BotApp().run()
