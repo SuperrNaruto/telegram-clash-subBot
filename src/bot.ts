@@ -151,9 +151,12 @@ bot.action(/TOGGLE_/, async ctx => {
     else session.apps.add(app);
   }
 
-  await ctx.editMessageReplyMarkup({
-    inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard
-  });
+  const newMarkup = buildKeyboard(session).reply_markup.inline_keyboard;
+  const currentMarkup =
+    (ctx.callbackQuery as any).message?.reply_markup?.inline_keyboard;
+  if (JSON.stringify(newMarkup) !== JSON.stringify(currentMarkup)) {
+    await ctx.editMessageReplyMarkup({ inline_keyboard: newMarkup });
+  }
   await ctx.answerCbQuery();
 });
 
