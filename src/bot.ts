@@ -4,7 +4,7 @@ import { fetchGistRaw, parseNodeLine } from "./gist.js";
 import { buildYaml } from "./yaml.js";
 import { alias } from "./alias.js";
 import { fetchRuleCategories } from "./rules.js";
-import { loadGroups } from "./groups.js";
+import { loadGroups, saveGroups } from "./groups.js";
 
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 if (!BOT_TOKEN) throw new Error("BOT_TOKEN 未设置");
@@ -25,6 +25,16 @@ interface Session {
   awaitingSearch?: boolean;
 }
 const sessions = new Map<number, Session>();
+
+/** 分组编辑会话 */
+interface EditSession {
+  group: string;
+  apps: Set<string>;
+  page: number;
+  filter?: string;
+  awaitingSearch?: boolean;
+}
+const editSessions = new Map<number, EditSession>();
 
 let APP_LIST: string[] = [];
 let GROUPS: Record<string, string[]> = {};
@@ -90,6 +100,35 @@ function buildKeyboard(session: Session) {
   return Markup.inlineKeyboard(arranged);
 }
 
+function buildEditKeyboard(session: EditSession) {
+  const list = session.filter
+    ? APP_LIST.filter(a => a.toLowerCase().includes(session.filter!.toLowerCase()))
+    : APP_LIST;
+  const start = session.page * PAGE_SIZE;
+  const pageApps = list.slice(start, start + PAGE_SIZE);
+  const rows = pageApps.map(app =>
+    Markup.button.callback(
+      `${session.apps.has(app) ? "✅" : "⬜️"} ${app}`,
+      `EG_TOGGLE_${app}`
+    )
+  );
+  const arranged: any[][] = [];
+  for (let i = 0; i < rows.length; i += 2) arranged.push(rows.slice(i, i + 2));
+  const nav: any[] = [];
+  if (session.page > 0) nav.push(Markup.button.callback("⬅️ 上一页", "EG_PREV"));
+  if (start + PAGE_SIZE < list.length)
+    nav.push(Markup.button.callback("下一页 ➡️", "EG_NEXT"));
+  arranged.push(nav);
+  const searchRow: any[] = [Markup.button.callback("🔍 搜索", "EG_SEARCH")];
+  if (session.filter) searchRow.push(Markup.button.callback("❌ 清除", "EG_CLEAR_FILTER"));
+  arranged.push(searchRow);
+  arranged.push([
+    Markup.button.callback("✅ 保存", "EG_SAVE"),
+    Markup.button.callback("取消", "EG_CANCEL")
+  ]);
+  return Markup.inlineKeyboard(arranged);
+}
+
 function cleanupSessions() {
   const now = Date.now();
   for (const [id, session] of sessions.entries()) {
@@ -118,8 +157,64 @@ bot.start(ctx =>
   )
 );
 
+bot.command("groups", ctx => {
+  if (Object.keys(GROUPS).length === 0) return ctx.reply("当前没有自定义分组");
+  const lines = Object.entries(GROUPS).map(
+    ([g, apps]) => `${g}: ${apps.join(", ") || "无规则"}`
+  );
+  ctx.reply(lines.join("\n"));
+});
+
+bot.command("newgroup", async ctx => {
+  const [, name, ...rules] = ctx.message.text.trim().split(/\s+/);
+  if (!name) return ctx.reply("用法: /newgroup 组名 [规则...]");
+  if (GROUPS[name]) return ctx.reply("该分组已存在");
+  GROUPS[name] = rules;
+  await saveGroups(GROUPS);
+  ctx.reply(`已创建分组 ${name}`);
+});
+
+bot.command("addrules", async ctx => {
+  const [, name, ...rules] = ctx.message.text.trim().split(/\s+/);
+  if (!name || rules.length === 0)
+    return ctx.reply("用法: /addrules 组名 规则...");
+  if (!GROUPS[name]) GROUPS[name] = [];
+  for (const r of rules) if (!GROUPS[name].includes(r)) GROUPS[name].push(r);
+  await saveGroups(GROUPS);
+  ctx.reply(`已更新分组 ${name}`);
+});
+
+bot.command("removerules", async ctx => {
+  const [, name, ...rules] = ctx.message.text.trim().split(/\s+/);
+  if (!name || rules.length === 0)
+    return ctx.reply("用法: /removerules 组名 规则...");
+  if (!GROUPS[name]) return ctx.reply("分组不存在");
+  GROUPS[name] = GROUPS[name].filter(r => !rules.includes(r));
+  await saveGroups(GROUPS);
+  ctx.reply(`已更新分组 ${name}`);
+});
+
+bot.command("editgroup", ctx => {
+  const [, name] = ctx.message.text.trim().split(/\s+/);
+  if (!name) return ctx.reply("用法: /editgroup 组名");
+  const rules = GROUPS[name] || [];
+  const s: EditSession = { group: name, apps: new Set(rules), page: 0 };
+  editSessions.set(ctx.from.id, s);
+  ctx.reply(
+    `正在编辑分组 ${name}，勾选要包含的规则：`,
+    buildEditKeyboard(s)
+  );
+});
+
 bot.on("text", async ctx => {
   const text = ctx.message.text.trim();
+  const editSession = editSessions.get(ctx.from.id);
+  if (editSession?.awaitingSearch) {
+    editSession.filter = text;
+    editSession.page = 0;
+    editSession.awaitingSearch = false;
+    return ctx.reply(`已根据关键词“${text}”过滤：`, buildEditKeyboard(editSession));
+  }
   const session = getSession(ctx.from.id);
   if (session.awaitingSearch) {
     session.filter = text;
@@ -140,7 +235,7 @@ bot.on("text", async ctx => {
   );
 });
 
-bot.action(/TOGGLE_/, async ctx => {
+bot.action(/^TOGGLE_/, async ctx => {
   const callbackQuery = ctx.callbackQuery as { data: string };
   const data = callbackQuery.data;
   if (!data) return ctx.answerCbQuery("无效的回调数据");
@@ -166,6 +261,86 @@ bot.action(/TOGGLE_/, async ctx => {
     (ctx.callbackQuery as any).message?.reply_markup?.inline_keyboard;
   if (JSON.stringify(newMarkup) !== JSON.stringify(currentMarkup)) {
     await safeEditReplyMarkup(ctx, newMarkup);
+  }
+  await ctx.answerCbQuery();
+});
+
+bot.action(/^EG_TOGGLE_/, async ctx => {
+  const data = (ctx.callbackQuery as { data: string }).data;
+  const session = editSessions.get(ctx.from!.id);
+  if (!session) return ctx.answerCbQuery();
+  const app = data.replace("EG_TOGGLE_", "");
+  if (session.apps.has(app)) session.apps.delete(app);
+  else session.apps.add(app);
+  await safeEditReplyMarkup(
+    ctx,
+    buildEditKeyboard(session).reply_markup.inline_keyboard
+  );
+  await ctx.answerCbQuery();
+});
+
+bot.action("EG_NEXT", async ctx => {
+  const session = editSessions.get(ctx.from!.id);
+  if (session && (session.page + 1) * PAGE_SIZE < APP_LIST.length) {
+    session.page++;
+    await safeEditReplyMarkup(
+      ctx,
+      buildEditKeyboard(session).reply_markup.inline_keyboard
+    );
+  }
+  await ctx.answerCbQuery();
+});
+
+bot.action("EG_PREV", async ctx => {
+  const session = editSessions.get(ctx.from!.id);
+  if (session && session.page > 0) {
+    session.page--;
+    await safeEditReplyMarkup(
+      ctx,
+      buildEditKeyboard(session).reply_markup.inline_keyboard
+    );
+  }
+  await ctx.answerCbQuery();
+});
+
+bot.action("EG_SEARCH", async ctx => {
+  const session = editSessions.get(ctx.from!.id);
+  if (session) {
+    session.awaitingSearch = true;
+  }
+  await ctx.answerCbQuery("请输入关键词发送给我");
+});
+
+bot.action("EG_CLEAR_FILTER", async ctx => {
+  const session = editSessions.get(ctx.from!.id);
+  if (session && session.filter) {
+    session.filter = undefined;
+    session.page = 0;
+    await safeEditReplyMarkup(
+      ctx,
+      buildEditKeyboard(session).reply_markup.inline_keyboard
+    );
+  }
+  await ctx.answerCbQuery();
+});
+
+bot.action("EG_SAVE", async ctx => {
+  const session = editSessions.get(ctx.from!.id);
+  if (!session) return ctx.answerCbQuery();
+  GROUPS[session.group] = Array.from(session.apps);
+  await saveGroups(GROUPS);
+  editSessions.delete(ctx.from!.id);
+  await ctx.editMessageReplyMarkup(undefined);
+  await ctx.answerCbQuery("已保存");
+  await ctx.reply(`分组 ${session.group} 已保存`);
+});
+
+bot.action("EG_CANCEL", async ctx => {
+  if (editSessions.has(ctx.from!.id)) {
+    const s = editSessions.get(ctx.from!.id)!;
+    editSessions.delete(ctx.from!.id);
+    await ctx.editMessageReplyMarkup(undefined);
+    await ctx.reply(`已取消编辑 ${s.group}`);
   }
   await ctx.answerCbQuery();
 });
