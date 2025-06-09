@@ -44,9 +44,10 @@ export function buildYaml(nodes: NodeMeta[], apps: string[]): string {
   }
   const regionNames = Object.keys(regionProxyMap);
 
+  const AUTO_GROUP_NAME = "Automatic";
   const groups = [
     {
-      name: "♻️ Automatic",
+      name: AUTO_GROUP_NAME,
       type: "url-test",
       url: "https://cp.cloudflare.com/generate_204",
       interval: 300,
@@ -60,9 +61,9 @@ export function buildYaml(nodes: NodeMeta[], apps: string[]): string {
     { name: "DIRECT", type: "direct" },
     { name: "REJECT", type: "reject" },
     ...apps.map(app => ({
-      name: `🎯 ${app}`,
+      name: app,
       type: "select",
-      proxies: ["♻️ Automatic", ...regionNames, "DIRECT", "REJECT"]
+      proxies: [AUTO_GROUP_NAME, ...regionNames, "DIRECT", "REJECT"]
     }))
   ];
 
@@ -78,8 +79,8 @@ export function buildYaml(nodes: NodeMeta[], apps: string[]): string {
     };
   }
 
-  const ruleLines = apps.map(app => `RULE-SET,${app},🎯 ${app}`);
-  ruleLines.push("MATCH,♻️ Automatic");
+  const ruleLines = apps.map(app => `RULE-SET,${app},${app}`);
+  ruleLines.push(`MATCH,${AUTO_GROUP_NAME}`);
 
   return YAML.stringify({
     port: 7890,

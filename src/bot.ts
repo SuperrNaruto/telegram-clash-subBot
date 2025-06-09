@@ -98,6 +98,16 @@ function cleanupSessions() {
     }
   }
 }
+
+async function safeEditReplyMarkup(ctx: any, markup: any) {
+  try {
+    await ctx.editMessageReplyMarkup({ inline_keyboard: markup });
+  } catch (e: any) {
+    if (!e?.description?.includes("message is not modified")) {
+      throw e;
+    }
+  }
+}
 setInterval(cleanupSessions, 60 * 60 * 1000);
 
 /* ---------- Bot Logic ---------- */
@@ -155,7 +165,7 @@ bot.action(/TOGGLE_/, async ctx => {
   const currentMarkup =
     (ctx.callbackQuery as any).message?.reply_markup?.inline_keyboard;
   if (JSON.stringify(newMarkup) !== JSON.stringify(currentMarkup)) {
-    await ctx.editMessageReplyMarkup({ inline_keyboard: newMarkup });
+    await safeEditReplyMarkup(ctx, newMarkup);
   }
   await ctx.answerCbQuery();
 });
@@ -164,9 +174,10 @@ bot.action("NEXT", async ctx => {
   const session = getSession(ctx.from!.id);
   if ((session.page + 1) * PAGE_SIZE < APP_LIST.length) {
     session.page++;
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard
-    });
+    await safeEditReplyMarkup(
+      ctx,
+      buildKeyboard(session).reply_markup.inline_keyboard
+    );
   }
   await ctx.answerCbQuery();
 });
@@ -175,9 +186,10 @@ bot.action("PREV", async ctx => {
   const session = getSession(ctx.from!.id);
   if (session.page > 0) {
     session.page--;
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard
-    });
+    await safeEditReplyMarkup(
+      ctx,
+      buildKeyboard(session).reply_markup.inline_keyboard
+    );
   }
   await ctx.answerCbQuery();
 });
@@ -193,9 +205,10 @@ bot.action("CLEAR_FILTER", async ctx => {
   if (session.filter) {
     session.filter = undefined;
     session.page = 0;
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: buildKeyboard(session).reply_markup.inline_keyboard
-    });
+    await safeEditReplyMarkup(
+      ctx,
+      buildKeyboard(session).reply_markup.inline_keyboard
+    );
   }
   await ctx.answerCbQuery();
 });
