@@ -1,8 +1,8 @@
-import os
 import json
 import yaml
 import asyncio
 import aiohttp
+from dotenv import dotenv_values
 from dataclasses import dataclass, field
 from typing import Dict, List, Set
 
@@ -16,9 +16,10 @@ from telegram.ext import (
     filters,
 )
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-SESSION_TTL = int(os.getenv("SESSION_TTL", "3600"))
+config = dotenv_values(".env")
+BOT_TOKEN = config.get("BOT_TOKEN")
+GITHUB_TOKEN = config.get("GITHUB_TOKEN")
+SESSION_TTL = int(config.get("SESSION_TTL", "3600"))
 PAGE_SIZE = 10
 GROUP_PAGE_SIZE = 5
 ALPHABET = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
@@ -600,11 +601,8 @@ class BotApp:
 
     async def run(self):
         await self.load_initial()
-        await self.app.initialize()
-        await self.app.start()
         print("🤖 Telegram Bot 已启动")
-        await self.app.updater.start_polling()
-        await self.app.updater.idle()
+        await self.app.run_polling()
 
 
 if __name__ == "__main__":
